@@ -1,0 +1,42 @@
+name: Build IPA (unsigned, for SideStore)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  ipa:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install xcodegen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        working-directory: apps/ios
+        run: xcodegen generate
+
+      - name: Build app (no code signing)
+        working-directory: apps/ios
+        run: |
+          xcodebuild -project AncsBridge.xcodeproj -scheme AncsBridge \
+            -destination "generic/platform=iOS" -configuration Release \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO CODE_SIGN_IDENTITY="" \
+            build | tail -30
+          exit ${PIPESTATUS[0]}
+
+      - name: Package IPA
+        working-directory: apps/ios
+        run: |
+          APP=$(find build/Build/Products/Release-iphoneos -maxdepth 1 -name "*.app" | head -1)
+          echo "App: $APP"
+          mkdir -p Payload
+          cp -R "$APP" Payload/
+          zip -qry WearBridge.ipa Payload
+          ls -l WearBridge.ipa
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: WearBridge-ipa
+          path: apps/ios/WearBridge.ipa
