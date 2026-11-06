@@ -21,6 +21,9 @@ enum BLEConstants {
     /// Characteristic: health data (watch writes TLV record batches)
     static let healthDataCharacteristicUUID = CBUUID(string: "A0E3D5B6-4C6F-4E8A-9B2D-7F1E3A5C8D0B")
 
+    /// Characteristic: L2CAP PSM of the internet-tunnel probe (readable, UInt16 little-endian; 0 = not published)
+    static let tunnelPsmCharacteristicUUID = CBUUID(string: "A0E3D5B7-4C6F-4E8A-9B2D-7F1E3A5C8D0B")
+
     /// Call state values sent over BLE
     static let callStateIdle: UInt8 = 0x00
     static let callStateRinging: UInt8 = 0x01
@@ -28,7 +31,9 @@ enum BLEConstants {
     static let callStateEnded: UInt8 = 0x03
 
     /// State restoration identifier
-    static let restoreIdentifier = "com.wearos.ancsbridge.peripheral"
+    // ".v2": the GATT service gained the …B7 characteristic; a restored v1
+    // service would not contain it.
+    static let restoreIdentifier = "com.wearos.ancsbridge.peripheral.v2"
 
     /// Local name advertised to the watch
     static let advertisingLocalName = "WearBridge"
