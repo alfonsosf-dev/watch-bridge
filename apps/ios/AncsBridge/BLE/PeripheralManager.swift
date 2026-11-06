@@ -32,6 +32,9 @@ class PeripheralManager: NSObject, ObservableObject {
     private var callStateCharacteristic: CBMutableCharacteristic?
     private var healthControlCharacteristic: CBMutableCharacteristic?
     private var healthDataCharacteristic: CBMutableCharacteristic?
+    private var tunnelPsmCharacteristic: CBMutableCharacteristic?
+    /// PSM of the published L2CAP tunnel channel (0 = not published yet)
+    private var tunnelPsm: CBL2CAPPSM = 0
     private var serviceAdded = false
     private var scanTimer: Timer?
     /// Health control notification that didn't fit the BLE buffer — retried
@@ -56,7 +59,7 @@ class PeripheralManager: NSObject, ObservableObject {
     /// Known Wear OS watch name patterns
     private static let watchNamePatterns = [
         "pixel watch", "galaxy watch", "ticwatch", "fossil",
-        "oppo watch", "oneplus watch", "mobvoi", "wear os",
+        "oppo watch", "oneplus watch", "mobvoi", "wear os", "xiaomi watch",
         "ancs"  // Our own app's advertised name during pairing
     ]
 
@@ -287,6 +290,13 @@ class PeripheralManager: NSObject, ObservableObject {
             permissions: [.writeable]
         )
 
+        tunnelPsmCharacteristic = CBMutableCharacteristic(
+            type: BLEConstants.tunnelPsmCharacteristicUUID,
+            properties: [.read],
+            value: nil,
+            permissions: [.readable]
+        )
+
         companionService = CBMutableService(
             type: BLEConstants.companionServiceUUID,
             primary: true
@@ -296,7 +306,8 @@ class PeripheralManager: NSObject, ObservableObject {
             quickReplyCharacteristic,
             callStateCharacteristic!,
             healthControlCharacteristic!,
-            healthDataCharacteristic!
+            healthDataCharacteristic!,
+            tunnelPsmCharacteristic!
         ]
 
         peripheralManager.add(companionService!)
@@ -315,12 +326,18 @@ extension PeripheralManager: CBPeripheralManagerDelegate {
         switch peripheral.state {
         case .poweredOn:
             setupServices()
+            if tunnelPsm == 0 {
+                // Encrypted channel: only the bonded watch can open it
+                peripheral.publishL2CAPChannel(withEncryption: true)
+            }
             if settingsStore.autoAdvertise {
                 startAdvertising()
             }
         case .poweredOff:
             isAdvertising = false
             discoveredWatches = []
+            tunnelPsm = 0
+            TunnelServer.shared.close()
         default:
             break
         }
@@ -355,6 +372,10 @@ extension PeripheralManager: CBPeripheralManagerDelegate {
             peripheral.respond(to: request, withResult: .success)
         } else if request.characteristic.uuid == BLEConstants.callStateCharacteristicUUID {
             request.value = Data([callStateObserver.currentState])
+            peripheral.respond(to: request, withResult: .success)
+        } else if request.characteristic.uuid == BLEConstants.tunnelPsmCharacteristicUUID {
+            let psm = UInt16(tunnelPsm)
+            request.value = Data([UInt8(psm & 0xFF), UInt8(psm >> 8)])
             peripheral.respond(to: request, withResult: .success)
         } else if request.characteristic.uuid == BLEConstants.healthControlCharacteristicUUID {
             // Time-sync snapshot without subscribing
@@ -422,6 +443,27 @@ extension PeripheralManager: CBPeripheralManagerDelegate {
                     }
                 }
             }
+        }
+    }
+
+    // MARK: - L2CAP internet-tunnel probe
+
+    func peripheralManager(_ peripheral: CBPeripheralManager, didPublishL2CAPChannel PSM: CBL2CAPPSM, error: Error?) {
+        if let error = error {
+            logger.error("L2CAP publish failed: \(error.localizedDescription)")
+            return
+        }
+        tunnelPsm = PSM
+        logger.info("L2CAP tunnel published on PSM \(PSM)")
+    }
+
+    func peripheralManager(_ peripheral: CBPeripheralManager, didOpen channel: CBL2CAPChannel?, error: Error?) {
+        if let error = error {
+            logger.error("L2CAP open failed: \(error.localizedDescription)")
+            return
+        }
+        if let channel = channel {
+            TunnelServer.shared.accept(channel)
         }
     }
 
