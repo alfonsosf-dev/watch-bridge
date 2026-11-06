@@ -5,9 +5,17 @@ on:
 
 jobs:
   ipa:
-    runs-on: macos-15
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [macos-15-intel, macos-26]
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
 
       - name: Install xcodegen
         run: brew install xcodegen
@@ -38,5 +46,5 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: WearBridge-ipa
+          name: WearBridge-ipa-${{ matrix.runner }}
           path: apps/ios/WearBridge.ipa
